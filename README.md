@@ -33,7 +33,7 @@ Two independent steps: configure the agent, then run the receiver.
 
 ### 1. Configure the agent
 
-There are three ways to point Claude Code or Codex at the receiver. Pick whichever fits your workflow.
+There are three ways to point Claude Code or Codex at the receiver. Pick whichever fits your workflow. Note that agents read config at startup — if you change the config after an agent is already running, you'll need to restart it (close and reopen the VS Code pane, start a new conversation, or exit and relaunch the CLI). This is not much of a concern with scripted invocations (`claude -p`, `codex exec`) since each call is a new process.
 
 #### Option A: Use the setup command
 
@@ -154,11 +154,14 @@ The `--project` and `--subproject` names are yours to choose. A natural pattern 
 - `--project another-project --subproject experiment-a`
 - `--project another-project --subproject experiment-b`
 
-**Important: agents must be restarted after changing config.**
+**Important: agents read config at startup, not on the fly.** If you change `--project` or `--subproject` (by re-running `setup` or editing config files), any already-running agent session will keep using the old values. You need to restart the agent so it picks up the new config.
 
-- **Claude Code (VS Code pane):** Close the Claude pane and re-open it. It picks up new settings on launch.
-- **Claude CLI / Codex CLI:** Exit and restart the CLI process.
+- **Claude Code in VS Code:** Close the Claude pane (or start a new conversation with `/clear`) and re-open it. The new conversation reads the updated `.claude/settings.local.json` on launch.
+- **Claude CLI (`claude -p`):** Each `claude -p "..."` invocation is a fresh process that reads config at startup, so this is a non-issue for scripted workflows — just call `setup` before the next invocation.
+- **Codex CLI (`codex exec`):** Same as Claude CLI — each invocation reads config at startup.
 - **Codex (VS Code GUI):** The VS Code GUI only reads the global `~/.codex/config.toml`, not project-scoped config. This means using Codex GUI for telemetry temporarily requires writing to your global config. CLI usage (`codex exec`) reads project-scoped `.codex/config.toml` and does not have this limitation.
+
+In short: **interactive sessions** (VS Code panes, long-running CLI chats) need a manual restart after config changes. **Scripted invocations** (`claude -p`, `codex exec`) pick up changes automatically because each call is a new process.
 
 ### Clean up
 
