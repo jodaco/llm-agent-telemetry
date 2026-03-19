@@ -1,0 +1,7 @@
+telemetry-output/
+test-telemetry-output/
+.codex/*
+!.codex/config.toml
+.claude/settings.local.json
+__pycache__/
+*.pyc
