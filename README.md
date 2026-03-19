@@ -51,6 +51,9 @@ python3 -m agent_telemetry setup codex --project my-project --subproject task-1
 
 # Write config to a different directory
 python3 -m agent_telemetry setup --project my-project --subproject task-1 --dir /path/to/project
+
+# Use a custom port (must match the receiver's --port)
+python3 -m agent_telemetry setup --project my-project --subproject task-1 --port 9999
 ```
 
 This writes `.claude/settings.local.json` and/or `.codex/config.toml` in the target directory. These are project-scoped overrides — they only affect agent instances launched from that directory, so any unrelated Claude or Codex sessions you have open elsewhere are not affected.
