@@ -176,6 +176,8 @@ python3 -m agent_telemetry teardown claude
 python3 -m agent_telemetry teardown codex
 ```
 
+Once your agent session is complete, see [Viewing Telemetry](#viewing-telemetry) below to browse the captured data.
+
 ---
 
 ## Library Usage
