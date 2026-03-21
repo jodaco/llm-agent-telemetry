@@ -129,7 +129,7 @@ def _format_ts(ts_str):
     try:
         ts_str = ts_str.replace("Z", "+00:00")
         dt = datetime.fromisoformat(ts_str)
-        return dt.strftime("%H:%M:%S")
+        return dt.strftime("%H:%M:%S") + " UTC"
     except (ValueError, TypeError):
         return str(ts_str)[:19]
 
@@ -305,14 +305,15 @@ table.artifacts tr:hover { background: #f8f9fa; }
 /* Buttons */
 .nav-button {
     border: none; background: #0d6efd; color: white;
-    padding: 0.5rem 1rem; border-radius: 999px; cursor: pointer;
-    font-weight: 600; font-size: 0.85rem;
+    padding: 0.3rem 0.7rem; border-radius: 999px; cursor: pointer;
+    font-weight: 600; font-size: 0.75rem;
     transition: background 0.2s ease;
     display: inline-flex; align-items: center;
 }
 .nav-button:hover { background: #0b5ed7; }
 .nav-button.secondary { background: #6c757d; }
 .nav-button.secondary:hover { background: #5c636a; }
+.nav-button.small { padding: 0.2rem 0.5rem; font-size: 0.7rem; }
 .meta-toggle { background: #ffc107; color: #1c1c1c; }
 .meta-toggle:hover { background: #ffca2c; }
 
@@ -410,7 +411,7 @@ body.meta-hidden .entry.collapsible-meta { display: none; }
 .timeline-toggle-btn {
     position: fixed; top: 0.75rem; right: 1rem;
     background: #0d6efd; color: white; border: none; border-radius: 999px;
-    padding: 0.6rem 0.9rem; font-weight: 700; cursor: pointer;
+    padding: 0.35rem 0.7rem; font-size: 0.75rem; font-weight: 700; cursor: pointer;
     box-shadow: 0 8px 18px rgba(13,110,253,0.25); z-index: 25;
 }
 .timeline-toggle-btn.hidden { display: none; }
@@ -700,6 +701,22 @@ def _event_css_class(ev):
     return "entry-system"
 
 
+def _extract_mcp_server(attrs):
+    # type: (dict) -> str
+    """Extract MCP server name from attributes or tool_parameters JSON."""
+    server = attrs.get("mcp_server_name", "")
+    if server:
+        return server
+    params_str = attrs.get("tool_parameters", "")
+    if params_str:
+        try:
+            params = json.loads(str(params_str))
+            return params.get("mcp_server_name", "")
+        except (ValueError, TypeError):
+            pass
+    return ""
+
+
 def _event_label(ev):
     # type: (dict) -> str
     """Build the header label like the example viewer."""
@@ -731,12 +748,22 @@ def _event_label(ev):
         tool = attrs.get("tool_name", "")
         decision = attrs.get("decision", "")
         if tool:
-            return "Tool Decision \u00b7 {} \u00b7 {}".format(tool, decision)
+            label = "Tool Decision \u00b7 {}".format(tool)
+            mcp_server = _extract_mcp_server(attrs)
+            if mcp_server:
+                label += " \u00b7 {}".format(mcp_server)
+            if decision:
+                label += " \u00b7 {}".format(decision)
+            return label
         return "Tool Decision"
     if "tool_result" in en:
         tool = attrs.get("tool_name", "")
         if tool:
-            return "Tool Result \u00b7 {}".format(tool)
+            label = "Tool Result \u00b7 {}".format(tool)
+            mcp_server = _extract_mcp_server(attrs)
+            if mcp_server:
+                label += " \u00b7 {}".format(mcp_server)
+            return label
         return "Tool Result"
     if "websocket_connect" in en:
         return "WebSocket Connect"
@@ -878,9 +905,13 @@ def _render_event_body(ev):
             tool = attrs.get("tool_name", "")
             decision = attrs.get("decision", "")
             source = attrs.get("source", "")
+            mcp_server = _extract_mcp_server(attrs)
             line = []
             if tool:
-                line.append("<b>{}</b>".format(html.escape(str(tool))))
+                tool_label = html.escape(str(tool))
+                if mcp_server:
+                    tool_label += " &middot; {}".format(html.escape(str(mcp_server)))
+                line.append("<b>{}</b>".format(tool_label))
             if decision:
                 line.append(html.escape(str(decision)))
             if source:
@@ -888,14 +919,19 @@ def _render_event_body(ev):
             if line:
                 parts.append(" &mdash; ".join(line))
 
-        # Tool result — show tool name, success, duration, and expandable params/output
+        # Tool result — show tool name, success, duration, error, params, output
         elif "tool_result" in event_name:
             tool = attrs.get("tool_name", "")
+            mcp_server = _extract_mcp_server(attrs)
             success = attrs.get("success", "")
             dur = attrs.get("duration_ms", "")
+            error = attrs.get("error", "")
             info = []
             if tool:
-                info.append("<b>{}</b>".format(html.escape(str(tool))))
+                tool_label = html.escape(str(tool))
+                if mcp_server:
+                    tool_label += " &middot; {}".format(html.escape(str(mcp_server)))
+                info.append("<b>{}</b>".format(tool_label))
             if success:
                 color = "#4caf50" if str(success).lower() == "true" else "#f44336"
                 info.append('<span style="color:{}">success={}</span>'.format(
@@ -903,34 +939,65 @@ def _render_event_body(ev):
                 ))
             if dur:
                 info.append("{}ms".format(html.escape(str(dur))))
+            result_size = attrs.get("tool_result_size_bytes", "")
+            if result_size:
+                info.append("{} bytes".format(html.escape(str(result_size))))
             if info:
                 parts.append(" &middot; ".join(info))
 
-            # Expandable tool parameters
+            # Error message (shown inline, highlighted)
+            if error:
+                parts.append(
+                    '<div style="color:#d32f2f;background:#ffebee;padding:0.4rem 0.6rem;'
+                    'border-radius:4px;margin:0.3rem 0;font-size:0.85rem;">'
+                    '<b>Tool error:</b> {}</div>'.format(html.escape(str(error)))
+                )
+
+            # Tool parameters and output — expanded by default as "Results"
+            results_parts = []
             params = attrs.get("tool_parameters", "") or attrs.get("arguments", "")
             if params:
                 parsed = _try_parse_json(str(params))
-                if parsed is not None:
-                    display = json.dumps(parsed, indent=2)
+                if parsed is not None and isinstance(parsed, dict):
+                    # Render each key-value pair, expanding embedded
+                    # newlines in long string values (e.g. full_command)
+                    param_lines = []
+                    for pk, pv in parsed.items():
+                        if isinstance(pv, str) and ("\\n" in pv or len(pv) > 80):
+                            param_lines.append("<b>{}</b>:".format(html.escape(pk)))
+                            param_lines.append(html.escape(pv))
+                        else:
+                            param_lines.append("<b>{}</b>: {}".format(
+                                html.escape(pk), html.escape(str(pv))
+                            ))
+                    results_parts.append(
+                        "<b>Parameters</b><pre>{}</pre>".format("\n".join(param_lines))
+                    )
+                elif parsed is not None:
+                    results_parts.append(
+                        "<b>Parameters</b><pre>{}</pre>".format(
+                            html.escape(json.dumps(parsed, indent=2))
+                        )
+                    )
                 else:
-                    display = str(params)
-                parts.append(
-                    "<details><summary>Parameters</summary>"
-                    "<pre>{}</pre></details>".format(html.escape(display))
-                )
+                    results_parts.append(
+                        "<b>Parameters</b><pre>{}</pre>".format(html.escape(str(params)))
+                    )
 
-            # Expandable output (Codex puts it in attrs)
+            # Output (Codex puts it in attrs)
             output = attrs.get("output", "")
             if output:
                 out_str = str(output)
-                if len(out_str) > 500:
-                    preview = html.escape(out_str[:500]) + "..."
-                else:
-                    preview = html.escape(out_str)
-                parts.append(
-                    "<details><summary>Output ({} bytes)</summary>"
-                    "<pre>{}</pre></details>".format(
+                results_parts.append(
+                    "<b>Output</b> ({} bytes)<pre>{}</pre>".format(
                         len(out_str), html.escape(out_str)
+                    )
+                )
+
+            if results_parts:
+                parts.append(
+                    "<details open><summary>Results</summary>{}</details>".format(
+                        "".join(results_parts)
                     )
                 )
 
@@ -1151,11 +1218,20 @@ def _render_summary_bar(summary):
 
 def _get_tool_name(ev):
     # type: (dict) -> str | None
-    """Extract tool name from event if it's a tool-related event."""
+    """Extract tool name from event if it's a tool-related event.
+
+    For MCP tools, includes the server name (e.g. 'mcp_tool · ghidra')
+    so different MCP servers get distinct colors on the timeline.
+    """
     event_name = (ev.get("event_name", "") or "").lower()
     attrs = ev.get("attributes", {}) or {}
     if "tool_result" in event_name or "tool_decision" in event_name:
-        return attrs.get("tool_name", "") or None
+        tool = attrs.get("tool_name", "") or None
+        if tool:
+            mcp_server = _extract_mcp_server(attrs)
+            if mcp_server:
+                return "{} \u00b7 {}".format(tool, mcp_server)
+        return tool
     return None
 
 
@@ -1246,6 +1322,19 @@ def _render_conversation_log(data_dir, project, sub):
         for j in range(len(indices) - 1):
             next_tool_anchor[indices[j]] = "entry-{}".format(indices[j + 1])
 
+    # Build per-event-type chain for "Next" buttons on API requests and user prompts
+    next_type_anchor = {}  # type: dict[int, str]
+    type_indices = {}  # type: dict[str, list[int]]
+    for i, ev in enumerate(events):
+        en = (ev.get("event_name", "") or "").lower()
+        if "api_request" in en:
+            type_indices.setdefault("api_request", []).append(i)
+        elif "user_prompt" in en:
+            type_indices.setdefault("user_prompt", []).append(i)
+    for _tkey, indices in type_indices.items():
+        for j in range(len(indices) - 1):
+            next_type_anchor[indices[j]] = "entry-{}".format(indices[j + 1])
+
     # Build timeline event config for JS
     timeline_events = []
     for i, ev in enumerate(events):
@@ -1308,7 +1397,8 @@ def _render_conversation_log(data_dir, project, sub):
         signal = ev.get("signal", "")
         css = _event_css_class(ev)
         label = _event_label(ev)
-        ts = _format_ts(ev.get("timestamp", ""))
+        ts_raw = ev.get("timestamp", "")
+        ts = _format_ts(ts_raw)
         attrs = ev.get("attributes", {}) or {}
         seq = attrs.get("event.sequence", "")
         event_name = ev.get("event_name", "") or ""
@@ -1362,11 +1452,26 @@ def _render_conversation_log(data_dir, project, sub):
                     ' data-target="{nxt}">Next this tool</button>'
                 ).format(nxt=nxt)
 
+        # "Next API request" / "Next user prompt" buttons
+        nxt_type = next_type_anchor.get(i)
+        if nxt_type:
+            en_lower = (event_name or "").lower()
+            if "api_request" in en_lower:
+                nav_buttons += (
+                    ' <button type="button" class="nav-button secondary small jump-to-next"'
+                    ' data-target="{nxt}">Next API request</button>'
+                ).format(nxt=nxt_type)
+            elif "user_prompt" in en_lower:
+                nav_buttons += (
+                    ' <button type="button" class="nav-button secondary small jump-to-next"'
+                    ' data-target="{nxt}">Next user prompt</button>'
+                ).format(nxt=nxt_type)
+
         card = (
             '<article class="entry {css}{meta}" data-type="{dtype}" id="entry-{idx}">'
             '<header>'
             '<div>{status} {label}{nav}</div>'
-            '<small>{ts}{seq} \u00b7 {fname}</small>'
+            '<small><span class="ev-ts" data-utc="{ts_raw}">{ts}</span>{seq} \u00b7 {fname}</small>'
             '</header>'
             '<div class="body">{body}</div>'
             '<details><summary>Full JSON</summary><pre>{json}</pre></details>'
@@ -1380,6 +1485,7 @@ def _render_conversation_log(data_dir, project, sub):
             label=html.escape(label),
             nav=nav_buttons,
             ts=html.escape(ts),
+            ts_raw=html.escape(ts_raw),
             seq=html.escape(seq_str),
             fname=html.escape(filename),
             body=body_html,
@@ -1601,6 +1707,16 @@ function toggleType(cb, eventType) {{
 
     updateLayout();
     window.addEventListener("resize", updateLayout);
+
+    // Convert UTC timestamps to local time
+    document.querySelectorAll(".ev-ts").forEach(function(el) {{
+        var utc = el.getAttribute("data-utc");
+        if (!utc) return;
+        var d = new Date(utc);
+        if (isNaN(d.getTime())) return;
+        var local = d.toLocaleTimeString([], {{hour:"2-digit", minute:"2-digit", second:"2-digit", hour12: false}});
+        el.textContent = el.textContent + " (" + local + " local)";
+    }});
 }})();
 </script>
 """.format(config=timeline_config)
